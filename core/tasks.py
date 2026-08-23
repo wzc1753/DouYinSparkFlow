@@ -100,6 +100,11 @@ def scroll_and_select_user(page, username, targets):
     logger.debug(f"账号 {username} 开始查找目标好友列表")
     logger.debug(f"账号 {username} 目标好友列表: {targets}")
 
+    # 等待会话列表容器加载完成，网络慢时利用 browserTimeout 给足加载时间
+    page.wait_for_selector(
+        scrollable_friends_selector, timeout=config["browserTimeout"]
+    )
+
     found_targets = set()
     # [修改] 复制一份目标列表用于追踪进度
     remaining_targets = set(targets)
