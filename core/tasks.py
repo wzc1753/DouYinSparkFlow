@@ -1,3 +1,4 @@
+import os
 import traceback
 from utils.logger import setup_logger
 from utils.config import get_config, get_userData
@@ -101,9 +102,22 @@ def scroll_and_select_user(page, username, targets):
     logger.debug(f"账号 {username} 目标好友列表: {targets}")
 
     # 等待会话列表容器加载完成，网络慢时利用 browserTimeout 给足加载时间
-    page.wait_for_selector(
-        scrollable_friends_selector, timeout=config["browserTimeout"]
-    )
+    try:
+        page.wait_for_selector(
+            scrollable_friends_selector, timeout=config["browserTimeout"]
+        )
+    except Exception:
+        # 列表未出现：截图保存现场，便于诊断是风控验证页还是加载失败
+        try:
+            os.makedirs("logs", exist_ok=True)
+            logger.error(
+                f"账号 {username} 会话列表未出现，当前页面 URL: {page.url}"
+            )
+            page.screenshot(path="logs/failure_screenshot.png", full_page=True)
+            logger.error(f"账号 {username} 已保存失败截图 logs/failure_screenshot.png")
+        except Exception as screenshot_err:
+            logger.error(f"账号 {username} 截图失败: {screenshot_err}")
+        raise
 
     found_targets = set()
     # [修改] 复制一份目标列表用于追踪进度
