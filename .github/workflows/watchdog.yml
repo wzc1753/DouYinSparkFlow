@@ -12,20 +12,21 @@ jobs:
     permissions:
       actions: read
     steps:
-      - name: 检查今天的定时任务是否执行
+      - name: 检查最近的定时任务是否执行
         run: |
-          # 查询今天（UTC）的 schedule 运行记录
-          TODAY=$(date -u +%Y-%m-%d)
-          TOMORROW=$(date -u -d "+1 day" +%Y-%m-%d)
+          # 主任务在北京时间 7:13（UTC 前一天 23:13）执行，UTC 日期属于前一天，
+          # 因此按"过去 24 小时"窗口查询，而非按 UTC 日期查询
+          SINCE=$(date -u -d "-24 hours" +%Y-%m-%dT%H:%M:%SZ)
+          QUERY_FROM=$(date -u -d "-24 hours" +%Y-%m-%d)
           COUNT=$(curl -s -H "Authorization: Bearer ${{ github.token }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs?created=${TODAY}..${TOMORROW}&event=schedule" \
-            | jq '.total_count')
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs?created=${QUERY_FROM}..&event=schedule&per_page=100" \
+            | jq --arg since "$SINCE" '[.workflow_runs[] | select(.created_at > $since)] | length')
 
-          echo "今天($TODAY UTC) 的 schedule 运行记录数: $COUNT"
+          echo "过去 24 小时（$SINCE 之后）的 schedule 运行记录数: $COUNT"
 
           if [ "$COUNT" -eq 0 ]; then
-            echo "::error::今天的定时任务未执行！主 workflow 的 cron 被丢弃了，请手动补发。"
+            echo "::error::定时任务超过 24 小时未执行！主 workflow 的 cron 被丢弃了，请手动补发。"
             exit 1
           else
-            echo "今天已有 $COUNT 次 schedule 运行，正常。"
+            echo "过去 24 小时内有 $COUNT 次 schedule 运行，正常。"
           fi
