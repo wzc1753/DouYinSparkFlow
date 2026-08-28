@@ -1,0 +1,31 @@
+name: DouYin Spark Flow Watchdog
+
+on:
+  workflow_dispatch: # 允许手动触发
+  schedule: # 定时任务
+    - cron: "3 2 * * *" # 每天 2:03 UTC（对应北京时间 10:03，检查上午任务是否执行）
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: 检查今天的定时任务是否执行
+        run: |
+          # 查询今天（UTC）的 schedule 运行记录
+          TODAY=$(date -u +%Y-%m-%d)
+          TOMORROW=$(date -u -d "+1 day" +%Y-%m-%d)
+          COUNT=$(curl -s -H "Authorization: Bearer ${{ github.token }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs?created=${TODAY}..${TOMORROW}&event=schedule" \
+            | jq '.total_count')
+
+          echo "今天($TODAY UTC) 的 schedule 运行记录数: $COUNT"
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::今天的定时任务未执行！主 workflow 的 cron 被丢弃了，请手动补发。"
+            exit 1
+          else
+            echo "今天已有 $COUNT 次 schedule 运行，正常。"
+          fi
