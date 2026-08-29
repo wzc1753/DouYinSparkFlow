@@ -15,12 +15,11 @@ jobs:
       - name: 检查最近的定时任务是否执行
         run: |
           # 主任务在北京时间凌晨 1:03（UTC 前一天 17:03）执行，UTC 日期属于前一天，
-          # 因此按"过去 24 小时"窗口查询；且只统计主 workflow（schedule.yml），
-          # 排除看门狗自身的 schedule 运行，避免误判为"已执行"
+          # 因此按"过去 24 小时"窗口在 jq 里精确过滤（API 的 created 参数格式不稳定）；
+          # 且只统计主 workflow（schedule.yml），排除看门狗自身的 schedule 运行
           SINCE=$(date -u -d "-24 hours" +%Y-%m-%dT%H:%M:%SZ)
-          QUERY_FROM=$(date -u -d "-24 hours" +%Y-%m-%d)
           COUNT=$(curl -s -H "Authorization: Bearer ${{ github.token }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs?created=${QUERY_FROM}..&event=schedule&per_page=100" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs?event=schedule&per_page=100" \
             | jq --arg since "$SINCE" '[.workflow_runs[]
                 | select(.path == ".github/workflows/schedule.yml")
                 | select(.created_at > $since)] | length')
