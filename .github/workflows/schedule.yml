@@ -2,7 +2,7 @@ name: DouYin Spark Flow Schedule Run
 on:
   workflow_dispatch: # 允许手动触发
   schedule: # 定时任务
-    - cron: "13 23 * * *" # 每天 23:13 UTC（对应北京时间 7:13，避开整点高峰防丢任务）
+    - cron: "3 17 * * *" # 每天 17:03 UTC（对应北京时间凌晨 1:03，避开整点高峰防丢任务）
 jobs:
   run-main:
     timeout-minutes: 20

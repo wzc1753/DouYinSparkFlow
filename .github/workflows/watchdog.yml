@@ -3,7 +3,7 @@ name: DouYin Spark Flow Watchdog
 on:
   workflow_dispatch: # 允许手动触发
   schedule: # 定时任务
-    - cron: "3 2 * * *" # 每天 2:03 UTC（对应北京时间 10:03，检查上午任务是否执行）
+    - cron: "3 9 * * *" # 每天 9:03 UTC（对应北京时间 17:03，检查凌晨任务是否执行）
 
 jobs:
   watchdog:
@@ -14,19 +14,22 @@ jobs:
     steps:
       - name: 检查最近的定时任务是否执行
         run: |
-          # 主任务在北京时间 7:13（UTC 前一天 23:13）执行，UTC 日期属于前一天，
-          # 因此按"过去 24 小时"窗口查询，而非按 UTC 日期查询
+          # 主任务在北京时间凌晨 1:03（UTC 前一天 17:03）执行，UTC 日期属于前一天，
+          # 因此按"过去 24 小时"窗口查询；且只统计主 workflow（schedule.yml），
+          # 排除看门狗自身的 schedule 运行，避免误判为"已执行"
           SINCE=$(date -u -d "-24 hours" +%Y-%m-%dT%H:%M:%SZ)
           QUERY_FROM=$(date -u -d "-24 hours" +%Y-%m-%d)
           COUNT=$(curl -s -H "Authorization: Bearer ${{ github.token }}" \
             "https://api.github.com/repos/${{ github.repository }}/actions/runs?created=${QUERY_FROM}..&event=schedule&per_page=100" \
-            | jq --arg since "$SINCE" '[.workflow_runs[] | select(.created_at > $since)] | length')
+            | jq --arg since "$SINCE" '[.workflow_runs[]
+                | select(.path == ".github/workflows/schedule.yml")
+                | select(.created_at > $since)] | length')
 
-          echo "过去 24 小时（$SINCE 之后）的 schedule 运行记录数: $COUNT"
+          echo "过去 24 小时（$SINCE 之后）主任务的 schedule 运行记录数: $COUNT"
 
           if [ "$COUNT" -eq 0 ]; then
-            echo "::error::定时任务超过 24 小时未执行！主 workflow 的 cron 被丢弃了，请手动补发。"
+            echo "::error::主任务超过 24 小时未执行！cron 被丢弃了，请手动补发。"
             exit 1
           else
-            echo "过去 24 小时内有 $COUNT 次 schedule 运行，正常。"
+            echo "过去 24 小时内主任务有 $COUNT 次 schedule 运行，正常。"
           fi
