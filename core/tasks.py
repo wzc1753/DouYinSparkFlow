@@ -286,11 +286,21 @@ def do_user_task(browser, username, cookies, targets):
 
         # 在 chat-input-dccKiL 中输入内容
         message = build_message()
+
+        # [修复] 记录输入框基线内容（空串或占位符文本）。发送成功的判定是
+        # 输入框"回到基线状态"而非"变空"——占位符文本会导致判空校验永远失败
+        def input_text():
+            return chat_input.inner_text().strip()
+
+        baseline = input_text()
+        if baseline:
+            logger.debug(f"账号 {username} 好友 {friend} 输入框基线（占位符）: {baseline!r}")
+
         # [修复] 输入后校验内容确实进入输入框（会话切换竞态可能清空内容），失败自动重试
         typed_ok = False
         for attempt in range(3):
-            # 若输入框有残留内容（上一条未发出），先清空避免消息串联
-            if chat_input.inner_text().strip():
+            # 若输入框有残留的未发出内容（与基线不同），先清空避免消息串联
+            if input_text() != baseline:
                 chat_input.press("ControlOrMeta+a")
                 chat_input.press("Backspace")
                 time.sleep(0.5)
@@ -300,7 +310,7 @@ def do_user_task(browser, username, cookies, targets):
                 if line != message.split("\\n")[-1]:
                     chat_input.press("Shift+Enter")  # 模拟 Shift+Enter 插入换行
             time.sleep(0.5)
-            if chat_input.inner_text().strip():
+            if input_text() != baseline:
                 typed_ok = True
                 break
             logger.warning(
@@ -309,6 +319,11 @@ def do_user_task(browser, username, cookies, targets):
 
         if not typed_ok:
             logger.error(f"账号 {username} 给好友 {friend} 输入消息失败，跳过该好友")
+            try:
+                os.makedirs("logs", exist_ok=True)
+                page.screenshot(path=f"logs/send_{friend}.png")
+            except Exception:
+                pass
             failed_friends.append(friend)
             continue
 
@@ -317,14 +332,25 @@ def do_user_task(browser, username, cookies, targets):
         chat_input.press("Enter")
         time.sleep(1)
 
-        # [修复] 发送后校验：发送成功输入框会被清空；未清空说明消息没发出去，重试回车
-        if chat_input.inner_text().strip():
-            logger.warning(f"账号 {username} 给好友 {friend} 首次回车未发送，重试回车")
+        # [修复] 发送后校验：输入框回到基线状态即发送成功
+        if input_text() != baseline:
+            logger.warning(
+                f"账号 {username} 给好友 {friend} 首次回车未发送（输入框内容: {input_text()!r}），重试回车"
+            )
             chat_input.press("Enter")
             time.sleep(1)
 
-        if chat_input.inner_text().strip():
-            logger.error(f"账号 {username} 给好友 {friend} 发送消息失败！输入框内容未发出")
+        # [诊断] 每位好友发送后截图留证，随 artifact 上传，便于人工核对
+        try:
+            os.makedirs("logs", exist_ok=True)
+            page.screenshot(path=f"logs/send_{friend}.png")
+        except Exception:
+            pass
+
+        if input_text() != baseline:
+            logger.error(
+                f"账号 {username} 给好友 {friend} 发送消息失败！输入框内容: {input_text()!r}"
+            )
             failed_friends.append(friend)
         else:
             logger.info(f"账号 {username} 给好友 {friend} 发送消息成功")
