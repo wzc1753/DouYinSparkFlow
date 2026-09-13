@@ -332,13 +332,24 @@ def do_user_task(browser, username, cookies, targets):
         chat_input.press("Enter")
         time.sleep(1)
 
-        # [修复] 发送后校验：输入框回到基线状态即发送成功
+        # [修复] 发送后校验：输入框回到基线状态即发送成功；未发出则改用
+        # 页面级回车（作用于当前焦点元素）重试，覆盖焦点被面板切换抢走的情况
         if input_text() != baseline:
             logger.warning(
-                f"账号 {username} 给好友 {friend} 首次回车未发送（输入框内容: {input_text()!r}），重试回车"
+                f"账号 {username} 给好友 {friend} 首次回车未发送（输入框内容: {input_text()!r}），改用页面级回车重试"
             )
-            chat_input.press("Enter")
+            page.keyboard.press("Enter")
             time.sleep(1)
+
+        if input_text() != baseline:
+            # 最后兜底：点击编辑器确保焦点，再按页面级回车
+            try:
+                chat_input.click()
+                time.sleep(0.5)
+                page.keyboard.press("Enter")
+                time.sleep(1)
+            except Exception:
+                pass
 
         # [诊断] 每位好友发送后截图留证，随 artifact 上传，便于人工核对
         try:
