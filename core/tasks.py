@@ -264,29 +264,72 @@ def do_user_task(browser, username, cookies, targets):
     time.sleep(5)  # 等待5秒让过可能存在的弹窗
 
     logger.debug(f"账号 {username} 开始发送消息")
+    # [修复] 循环变量改为 friend，避免遮蔽外层账号名 username 导致日志混乱
+    failed_friends = []
     # 滚动并选择用户
-    for username in scroll_and_select_user(page, username, targets):
-        logger.debug(f"账号 {username} 已选中好友 {username} 发送消息")
+    for friend in scroll_and_select_user(page, username, targets):
+        logger.debug(f"账号 {username} 已选中好友 {friend}，等待聊天面板就绪")
         # 等待聊天输入框元素加载完成，使用更稳定的属性选择器
         chat_input_selector = CHAT_EDITOR_SELECTOR
         page.wait_for_selector(chat_input_selector, timeout=config["browserTimeout"])
+        # [修复] 等待会话切换完成：切换会话时输入框元素一直存在，wait_for_selector
+        # 会立即返回，但面板仍在重渲染，立即输入的内容会被清空导致消息发不出去
+        time.sleep(2)
         chat_input = page.locator(chat_input_selector)
 
         # 在 chat-input-dccKiL 中输入内容
         message = build_message()
-        for line in message.split("\\n"):
-            chat_input.type(line)  # 输入每一行
-            # 如果不是最后一行，模拟 Shift+Enter 插入换行
-            if line != message.split("\\n")[-1]:
-                chat_input.press("Shift+Enter")  # 模拟 Shift+Enter 插入换行
+        # [修复] 输入后校验内容确实进入输入框（会话切换竞态可能清空内容），失败自动重试
+        typed_ok = False
+        for attempt in range(3):
+            # 若输入框有残留内容（上一条未发出），先清空避免消息串联
+            if chat_input.inner_text().strip():
+                chat_input.press("ControlOrMeta+a")
+                chat_input.press("Backspace")
+                time.sleep(0.5)
+            for line in message.split("\\n"):
+                chat_input.type(line)  # 输入每一行
+                # 如果不是最后一行，模拟 Shift+Enter 插入换行
+                if line != message.split("\\n")[-1]:
+                    chat_input.press("Shift+Enter")  # 模拟 Shift+Enter 插入换行
+            time.sleep(0.5)
+            if chat_input.inner_text().strip():
+                typed_ok = True
+                break
+            logger.warning(
+                f"账号 {username} 给好友 {friend} 输入内容丢失（第 {attempt + 1} 次），重试输入"
+            )
 
-        logger.debug(f"账号 {username} 准备发送消息给好友 {username}：\n\t{message}")
-        logger.debug(f"账号 {username} 给好友 {username} 发送消息完成")
+        if not typed_ok:
+            logger.error(f"账号 {username} 给好友 {friend} 输入消息失败，跳过该好友")
+            failed_friends.append(friend)
+            continue
+
+        logger.debug(f"账号 {username} 准备发送消息给好友 {friend}：\n\t{message}")
         # 模拟按下回车键发送消息
         chat_input.press("Enter")
+        time.sleep(1)
+
+        # [修复] 发送后校验：发送成功输入框会被清空；未清空说明消息没发出去，重试回车
+        if chat_input.inner_text().strip():
+            logger.warning(f"账号 {username} 给好友 {friend} 首次回车未发送，重试回车")
+            chat_input.press("Enter")
+            time.sleep(1)
+
+        if chat_input.inner_text().strip():
+            logger.error(f"账号 {username} 给好友 {friend} 发送消息失败！输入框内容未发出")
+            failed_friends.append(friend)
+        else:
+            logger.info(f"账号 {username} 给好友 {friend} 发送消息成功")
         time.sleep(2)  # 发送完等待一会儿
 
     context.close()  # 任务完成后关闭上下文
+
+    # [修复] 存在发送失败的好友时抛出异常，让 workflow 以失败结束，触发失败告警邮件
+    if failed_friends:
+        raise RuntimeError(
+            f"账号 {username} 以下好友发送失败: {sorted(failed_friends)}"
+        )
 
 
 def runTasks():
