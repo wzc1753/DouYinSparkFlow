@@ -110,8 +110,15 @@ def scroll_and_select_user(page, username, targets):
         # 列表未出现：截图保存现场，便于诊断是风控验证页还是加载失败
         try:
             os.makedirs("logs", exist_ok=True)
+            hint = ""
+            # [新增] 检测登录弹窗：出现"扫码登录"说明 Cookie 已失效/被风控下线
+            try:
+                if page.get_by_text("扫码登录").count() > 0:
+                    hint = "（检测到登录弹窗，Cookie 已失效，请重新导出并更新 Secrets）"
+            except Exception:
+                pass
             logger.error(
-                f"账号 {username} 会话列表未出现，当前页面 URL: {page.url}"
+                f"账号 {username} 会话列表未出现{hint}，当前页面 URL: {page.url}"
             )
             page.screenshot(path="logs/failure_screenshot.png", full_page=True)
             logger.error(f"账号 {username} 已保存失败截图 logs/failure_screenshot.png")
